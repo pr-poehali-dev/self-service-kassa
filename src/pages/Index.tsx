@@ -341,6 +341,13 @@ export default function Index() {
                 <span className="font-semibold">Загружаю товары...</span>
               </div>
             )}
+            {!productsLoading && filtered.length === 0 && (
+              <div className="text-center py-20">
+                <div className="text-7xl mb-4">📦</div>
+                <p className="text-gray-400 text-lg">Товары не добавлены</p>
+                <p className="text-gray-500 text-sm mt-2">Добавьте товары в настройках или через сканер</p>
+              </div>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
               {filtered.map(product => (
                 <button

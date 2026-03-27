@@ -1,0 +1,1 @@
+UPDATE t_p33261395_self_service_kassa.products SET is_active = FALSE WHERE is_active = TRUE;

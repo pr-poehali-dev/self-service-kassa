@@ -32,26 +32,12 @@ interface Transaction {
 type Screen = "shop" | "cart" | "payment" | "receipt" | "history" | "settings";
 
 // ── Mock Data ──────────────────────────────────────────────────────────────
-const PRODUCTS: Product[] = [
-  { id: "p1", name: "Чипсы Lays", price: 89, category: "Снеки", emoji: "🥔", barcode: "4600699501706", image: "https://cdn.poehali.dev/projects/f65c9053-ce8c-486d-8204-489ff0b3683b/files/843c9a75-024d-4515-875d-67bc9ee68429.jpg" },
-  { id: "p2", name: "Energy Drink", price: 149, category: "Напитки", emoji: "⚡", barcode: "5060517882019", image: "https://cdn.poehali.dev/projects/f65c9053-ce8c-486d-8204-489ff0b3683b/files/09acfade-74cf-4e0e-b62b-a559ffeefa2f.jpg" },
-  { id: "p3", name: "Бургер Cheese", price: 299, category: "Еда", emoji: "🍔", barcode: "1234567890123", image: "https://cdn.poehali.dev/projects/f65c9053-ce8c-486d-8204-489ff0b3683b/files/47fe7257-19c6-4dbc-9be4-0a2ec3b80ec2.jpg" },
-  { id: "p4", name: "Coca-Cola 0.5л", price: 95, category: "Напитки", emoji: "🥤", barcode: "5449000000996" },
-  { id: "p5", name: "Сникерс", price: 65, category: "Сладости", emoji: "🍫", barcode: "5000159461701" },
-  { id: "p6", name: "Кофе Americano", price: 120, category: "Напитки", emoji: "☕", barcode: "4607173537452" },
-  { id: "p7", name: "Жвачка Orbit", price: 55, category: "Снеки", emoji: "🫧", barcode: "4009900518536" },
-  { id: "p8", name: "Вода 0.5л", price: 45, category: "Напитки", emoji: "💧", barcode: "4820033990013" },
-  { id: "p9", name: "Мороженое", price: 110, category: "Сладости", emoji: "🍦", barcode: "4607056998120" },
-  { id: "p10", name: "Попкорн", price: 79, category: "Снеки", emoji: "🍿", barcode: "4607056998121" },
-  { id: "p11", name: "Сок Добрый", price: 85, category: "Напитки", emoji: "🍊", barcode: "4607056998122" },
-  { id: "p12", name: "Батончик Twix", price: 75, category: "Сладости", emoji: "🍬", barcode: "5000159407175" },
-];
+const PRODUCTS: Product[] = [];
 
 const CATEGORIES = ["Все", "Снеки", "Напитки", "Сладости", "Еда"];
 
 const SETTINGS_INIT = {
   storeName: "GameStore",
-  taxRate: 20,
   currency: "₽",
   sound: true,
 };
@@ -131,7 +117,6 @@ export default function Index() {
   }, [loadTransactions]);
 
   const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const taxAmount = Math.round(total * settings.taxRate / 100);
 
   const addToCart = useCallback((product: Product) => {
     setCart(prev => {
@@ -189,7 +174,7 @@ export default function Index() {
       body: JSON.stringify({
         items: cart.map(i => ({ id: Number(i.id), name: i.name, price: i.price, emoji: i.emoji, qty: i.qty })),
         total,
-        tax_amount: taxAmount,
+        tax_amount: 0,
         payment_method: methodLabel,
       }),
     })
@@ -323,7 +308,7 @@ export default function Index() {
                   ОК
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-2 ml-1">Попробуй: <span className="text-cyan-500 cursor-pointer" onClick={() => handleBarcode("4600699501706")}>4600699501706</span> (Чипсы) или <span className="text-cyan-500 cursor-pointer" onClick={() => handleBarcode("5060517882019")}>5060517882019</span> (Energy)</p>
+              <p className="text-xs text-gray-500 mt-2 ml-1">Введите штрихкод с упаковки товара и нажмите Enter</p>
             </div>
 
             {/* Categories */}
@@ -448,11 +433,8 @@ export default function Index() {
                 </div>
 
                 <div className="bg-black/60 border border-purple-500/30 rounded-2xl p-5 neon-purple">
-                  <div className="flex justify-between text-sm text-gray-400 mb-2">
-                    <span>Товаров</span><span className="text-white">{cart.reduce((s, i) => s + i.qty, 0)} шт.</span>
-                  </div>
                   <div className="flex justify-between text-sm text-gray-400 mb-3">
-                    <span>НДС {settings.taxRate}%</span><span className="text-white">{taxAmount} {settings.currency}</span>
+                    <span>Товаров</span><span className="text-white">{cart.reduce((s, i) => s + i.qty, 0)} шт.</span>
                   </div>
                   <div className="border-t border-white/10 pt-3 flex justify-between items-center">
                     <span className="font-oswald text-xl font-bold text-white">ИТОГО</span>
@@ -506,7 +488,6 @@ export default function Index() {
                 <div className="bg-black/50 border border-white/10 rounded-2xl p-6 mb-6 text-center">
                   <p className="text-gray-400 text-sm mb-1">К оплате</p>
                   <p className="font-oswald text-5xl font-bold text-neon-yellow">{total} <span className="text-2xl">{settings.currency}</span></p>
-                  <p className="text-xs text-gray-500 mt-2">включая НДС {taxAmount} {settings.currency}</p>
                 </div>
 
                 {payMethod === "qr" && (
@@ -557,10 +538,6 @@ export default function Index() {
                 </div>
 
                 <div className="border-t border-white/10 p-5 space-y-2">
-                  <div className="flex justify-between text-sm text-gray-400">
-                    <span>НДС {settings.taxRate}%</span>
-                    <span>{Math.round(lastTx.total * settings.taxRate / 100)} {settings.currency}</span>
-                  </div>
                   <div className="flex justify-between text-sm text-gray-400">
                     <span>Способ оплаты</span><span>{lastTx.method}</span>
                   </div>
@@ -681,17 +658,6 @@ export default function Index() {
                 <input
                   value={settings.storeName}
                   onChange={e => setSettings(s => ({ ...s, storeName: e.target.value }))}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500/60 font-oswald text-lg"
-                />
-              </div>
-
-              <div className="bg-black/40 border border-white/10 rounded-2xl p-5">
-                <label className="block text-sm font-semibold text-purple-300 mb-2">Ставка НДС (%)</label>
-                <input
-                  type="number"
-                  value={settings.taxRate}
-                  onChange={e => setSettings(s => ({ ...s, taxRate: Number(e.target.value) }))}
-                  min={0} max={30}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500/60 font-oswald text-lg"
                 />
               </div>

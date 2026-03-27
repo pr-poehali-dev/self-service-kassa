@@ -1,5 +1,10 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Icon from "@/components/ui/icon";
+
+const API = {
+  products: "https://functions.poehali.dev/40d4be07-bcff-476e-83d4-6d1d59f59f8a",
+  transactions: "https://functions.poehali.dev/5dc5cf89-303c-4f5d-8668-789e0827ada9",
+};
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Product {
@@ -64,6 +69,8 @@ export default function Index() {
   const [screen, setScreen] = useState<Screen>("shop");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [products, setProducts] = useState<Product[]>(PRODUCTS);
+  const [productsLoading, setProductsLoading] = useState(true);
   const [category, setCategory] = useState("Все");
   const [search, setSearch] = useState("");
   const [barcodeInput, setBarcodeInput] = useState("");
@@ -75,6 +82,53 @@ export default function Index() {
   const [paymentDone, setPaymentDone] = useState(false);
   const [lastTx, setLastTx] = useState<Transaction | null>(null);
   const barcodeRef = useRef<HTMLInputElement>(null);
+
+  // Загрузка товаров из БД
+  useEffect(() => {
+    fetch(API.products)
+      .then(r => r.json())
+      .then(data => {
+        if (data.products?.length) {
+          setProducts(data.products.map((p: { id: number; name: string; price: number; category: string; emoji: string; barcode: string; image?: string }) => ({
+            ...p,
+            id: String(p.id),
+            image: p.image || undefined,
+          })));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setProductsLoading(false));
+  }, []);
+
+  // Загрузка истории транзакций
+  const loadTransactions = useCallback(() => {
+    fetch(API.transactions)
+      .then(r => r.json())
+      .then(data => {
+        if (data.transactions) {
+          setTransactions(data.transactions.map((t: { id: string; total: number; tax_amount: number; method: string; date: string; items: { name: string; price: number; emoji: string; qty: number }[] }) => ({
+            id: t.id,
+            total: t.total,
+            method: t.method,
+            date: t.date,
+            items: t.items.map(i => ({
+              id: "db",
+              name: i.name,
+              price: i.price,
+              emoji: i.emoji,
+              barcode: "",
+              category: "",
+              qty: i.qty,
+            })),
+          })));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadTransactions();
+  }, [loadTransactions]);
 
   const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
   const taxAmount = Math.round(total * settings.taxRate / 100);
@@ -99,40 +153,87 @@ export default function Index() {
   };
 
   const handleBarcode = (code: string) => {
-    const product = PRODUCTS.find(p => p.barcode === code.trim());
-    if (product) {
-      addToCart(product);
+    // Сначала ищем локально, затем в БД
+    const local = products.find(p => p.barcode === code.trim());
+    if (local) {
+      addToCart(local);
       setBarcodeInput("");
       setScanMode(false);
-    } else {
-      setBarcodeInput("❌ Не найдено");
-      setTimeout(() => setBarcodeInput(""), 1000);
+      return;
     }
+    fetch(`${API.products}?barcode=${encodeURIComponent(code.trim())}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.product) {
+          const p: Product = { ...data.product, id: String(data.product.id), image: data.product.image || undefined };
+          addToCart(p);
+          setBarcodeInput("");
+          setScanMode(false);
+        } else {
+          setBarcodeInput("❌ Не найдено");
+          setTimeout(() => setBarcodeInput(""), 1000);
+        }
+      })
+      .catch(() => {
+        setBarcodeInput("❌ Ошибка");
+        setTimeout(() => setBarcodeInput(""), 1000);
+      });
   };
 
   const handlePay = () => {
     setPaymentLoading(true);
-    setTimeout(() => {
-      setPaymentLoading(false);
-      setPaymentDone(true);
-      const tx: Transaction = {
-        id: Date.now().toString(),
-        date: new Date().toISOString(),
-        items: [...cart],
+    const methodLabel = payMethod === "card" ? "Банковская карта" : payMethod === "cash" ? "Наличные" : "QR-оплата";
+    fetch(API.transactions, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        items: cart.map(i => ({ id: Number(i.id), name: i.name, price: i.price, emoji: i.emoji, qty: i.qty })),
         total,
-        method: payMethod === "card" ? "Банковская карта" : payMethod === "cash" ? "Наличные" : "QR-оплата",
-      };
-      setTransactions(prev => [tx, ...prev]);
-      setLastTx(tx);
-      setTimeout(() => {
-        setPaymentDone(false);
-        setCart([]);
-        setScreen("receipt");
-      }, 1500);
-    }, 2000);
+        tax_amount: taxAmount,
+        payment_method: methodLabel,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        setPaymentLoading(false);
+        setPaymentDone(true);
+        const tx: Transaction = {
+          id: data.id || Date.now().toString(),
+          date: new Date().toISOString(),
+          items: [...cart],
+          total,
+          method: methodLabel,
+        };
+        setLastTx(tx);
+        loadTransactions();
+        setTimeout(() => {
+          setPaymentDone(false);
+          setCart([]);
+          setScreen("receipt");
+        }, 1500);
+      })
+      .catch(() => {
+        // Fallback — сохраняем локально
+        setPaymentLoading(false);
+        setPaymentDone(true);
+        const tx: Transaction = {
+          id: Date.now().toString(),
+          date: new Date().toISOString(),
+          items: [...cart],
+          total,
+          method: methodLabel,
+        };
+        setLastTx(tx);
+        setTransactions(prev => [tx, ...prev]);
+        setTimeout(() => {
+          setPaymentDone(false);
+          setCart([]);
+          setScreen("receipt");
+        }, 1500);
+      });
   };
 
-  const filtered = PRODUCTS.filter(p => {
+  const filtered = products.filter(p => {
     const matchCat = category === "Все" || p.category === category;
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search);
     return matchCat && matchSearch;
@@ -162,7 +263,7 @@ export default function Index() {
             ] as { id: Screen; icon: string; label: string }[]).map(nav => (
               <button
                 key={nav.id}
-                onClick={() => setScreen(nav.id)}
+                onClick={() => { setScreen(nav.id); if (nav.id === "history") loadTransactions(); }}
                 className={`relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 ${
                   screen === nav.id
                     ? "bg-purple-500/20 text-purple-300 neon-purple"
@@ -249,6 +350,12 @@ export default function Index() {
             </div>
 
             {/* Products */}
+            {productsLoading && (
+              <div className="flex items-center justify-center py-16 gap-3 text-purple-300">
+                <Icon name="Loader2" size={24} className="animate-spin" />
+                <span className="font-semibold">Загружаю товары...</span>
+              </div>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
               {filtered.map(product => (
                 <button

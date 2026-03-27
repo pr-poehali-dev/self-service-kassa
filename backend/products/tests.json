@@ -1,0 +1,20 @@
+{
+  "tests": [
+    {
+      "name": "Get all products",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {"products": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get by barcode",
+      "method": "GET",
+      "path": "/?barcode=4600699501706",
+      "expectedStatus": 200,
+      "expectedBody": {"product": {}},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "tests": [
+    {
+      "name": "Get transactions history",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {"transactions": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Create transaction",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "items": [{"id": 1, "name": "Чипсы Lays", "price": 89, "emoji": "🥔", "qty": 2}],
+        "total": 178,
+        "tax_amount": 36,
+        "payment_method": "Банковская карта"
+      },
+      "expectedStatus": 201,
+      "expectedBody": {"success": true},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

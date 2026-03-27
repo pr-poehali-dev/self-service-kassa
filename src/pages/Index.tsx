@@ -29,7 +29,7 @@ interface Transaction {
   method: string;
 }
 
-type Screen = "shop" | "cart" | "payment" | "receipt" | "history" | "settings";
+type Screen = "shop" | "cart" | "payment" | "receipt" | "history" | "settings" | "catalog";
 
 // ── Mock Data ──────────────────────────────────────────────────────────────
 const PRODUCTS: Product[] = [];
@@ -115,6 +115,88 @@ export default function Index() {
   useEffect(() => {
     loadTransactions();
   }, [loadTransactions]);
+
+  // ── Catalog state ──────────────────────────────────────────────────────────
+  const [allProducts, setAllProducts] = useState<(Product & { is_active: boolean })[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<(Product & { is_active: boolean }) | null>(null);
+  const [formData, setFormData] = useState({ name: "", price: "", category: "Снеки", emoji: "📦", barcode: "" });
+  const [formLoading, setFormLoading] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  const loadAllProducts = useCallback(() => {
+    setCatalogLoading(true);
+    fetch(`${API.products}?all=1`)
+      .then(r => r.json())
+      .then(data => { if (data.products) setAllProducts(data.products.map((p: { id: number; name: string; price: number; category: string; emoji: string; barcode: string; image?: string; is_active: boolean }) => ({ ...p, id: String(p.id) }))); })
+      .catch(() => {})
+      .finally(() => setCatalogLoading(false));
+  }, []);
+
+  const openAddForm = () => {
+    setEditingProduct(null);
+    setFormData({ name: "", price: "", category: "Снеки", emoji: "📦", barcode: "" });
+    setFormError("");
+    setShowForm(true);
+  };
+
+  const openEditForm = (p: Product & { is_active: boolean }) => {
+    setEditingProduct(p);
+    setFormData({ name: p.name, price: String(p.price), category: p.category, emoji: p.emoji, barcode: p.barcode });
+    setFormError("");
+    setShowForm(true);
+  };
+
+  const handleSaveProduct = async () => {
+    if (!formData.name.trim() || !formData.price || !formData.barcode.trim()) {
+      setFormError("Заполните название, цену и штрихкод");
+      return;
+    }
+    setFormLoading(true);
+    setFormError("");
+    try {
+      const url = editingProduct ? `${API.products}/${editingProduct.id}` : API.products;
+      const method = editingProduct ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...formData, price: Number(formData.price) }),
+      });
+      const data = await res.json();
+      if (data.success || data.id) {
+        setShowForm(false);
+        loadAllProducts();
+        // Обновляем активные товары тоже
+        fetch(API.products).then(r => r.json()).then(d => {
+          if (d.products?.length) setProducts(d.products.map((p: { id: number; name: string; price: number; category: string; emoji: string; barcode: string; image?: string }) => ({ ...p, id: String(p.id), image: p.image || undefined })));
+        }).catch(() => {});
+      } else {
+        setFormError(data.error || "Ошибка сохранения");
+      }
+    } catch {
+      setFormError("Ошибка соединения");
+    }
+    setFormLoading(false);
+  };
+
+  const handleToggleActive = async (p: Product & { is_active: boolean }) => {
+    await fetch(`${API.products}/${p.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: !p.is_active }),
+    });
+    loadAllProducts();
+    fetch(API.products).then(r => r.json()).then(d => {
+      if (d.products) setProducts(d.products.map((pr: { id: number; name: string; price: number; category: string; emoji: string; barcode: string; image?: string }) => ({ ...pr, id: String(pr.id), image: pr.image || undefined })));
+    }).catch(() => {});
+  };
+
+  const handleDeleteProduct = async (p: Product & { is_active: boolean }) => {
+    await fetch(`${API.products}/${p.id}`, { method: "DELETE" });
+    loadAllProducts();
+    setProducts(prev => prev.filter(pr => pr.id !== p.id));
+  };
 
   const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
 
@@ -243,12 +325,13 @@ export default function Index() {
             {([
               { id: "shop", icon: "ShoppingBag", label: "Товары" },
               { id: "cart", icon: "ShoppingCart", label: "Корзина" },
+              { id: "catalog", icon: "Package", label: "Каталог" },
               { id: "history", icon: "Clock", label: "История" },
               { id: "settings", icon: "Settings", label: "Настройки" },
             ] as { id: Screen; icon: string; label: string }[]).map(nav => (
               <button
                 key={nav.id}
-                onClick={() => { setScreen(nav.id); if (nav.id === "history") loadTransactions(); }}
+                onClick={() => { setScreen(nav.id); if (nav.id === "history") loadTransactions(); if (nav.id === "catalog") loadAllProducts(); }}
                 className={`relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 ${
                   screen === nav.id
                     ? "bg-purple-500/20 text-purple-300 neon-purple"
@@ -650,6 +733,171 @@ export default function Index() {
                   ))}
                 </div>
               </>
+            )}
+          </div>
+        )}
+
+        {/* CATALOG */}
+        {screen === "catalog" && (
+          <div className="animate-fade-in max-w-3xl mx-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="font-oswald text-2xl font-bold text-white">📦 Управление товарами</h2>
+              <button
+                onClick={openAddForm}
+                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-xl hover:from-purple-400 hover:to-pink-400 transition-all neon-purple text-sm"
+              >
+                <Icon name="Plus" size={16} /> Добавить товар
+              </button>
+            </div>
+
+            {/* Форма добавления/редактирования */}
+            {showForm && (
+              <div className="mb-6 bg-black/60 border border-purple-500/40 rounded-2xl p-5 animate-fade-in neon-purple">
+                <h3 className="font-oswald text-lg font-bold text-white mb-4">
+                  {editingProduct ? "✏️ Редактировать товар" : "➕ Новый товар"}
+                </h3>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="col-span-2">
+                    <label className="block text-xs text-purple-300 font-semibold mb-1">Название *</label>
+                    <input
+                      value={formData.name}
+                      onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
+                      placeholder="Например: Чипсы Lays"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-purple-500/60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-purple-300 font-semibold mb-1">Цена (₽) *</label>
+                    <input
+                      type="number"
+                      value={formData.price}
+                      onChange={e => setFormData(f => ({ ...f, price: e.target.value }))}
+                      placeholder="99"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-purple-500/60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-purple-300 font-semibold mb-1">Штрихкод *</label>
+                    <input
+                      value={formData.barcode}
+                      onChange={e => setFormData(f => ({ ...f, barcode: e.target.value }))}
+                      placeholder="4600699501706"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-purple-500/60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-purple-300 font-semibold mb-1">Категория</label>
+                    <select
+                      value={formData.category}
+                      onChange={e => setFormData(f => ({ ...f, category: e.target.value }))}
+                      className="w-full bg-[#1a0a2e] border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-purple-500/60"
+                    >
+                      {["Снеки", "Напитки", "Сладости", "Еда", "Другое"].map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-purple-300 font-semibold mb-1">Эмодзи</label>
+                    <input
+                      value={formData.emoji}
+                      onChange={e => setFormData(f => ({ ...f, emoji: e.target.value }))}
+                      placeholder="📦"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-purple-500/60"
+                    />
+                  </div>
+                </div>
+                {formError && (
+                  <p className="text-red-400 text-sm mb-3 flex items-center gap-1">
+                    <Icon name="AlertCircle" size={14} /> {formError}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveProduct}
+                    disabled={formLoading}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-cyan-500 to-purple-500 text-white font-semibold rounded-xl hover:from-cyan-400 hover:to-purple-400 transition-all disabled:opacity-60 text-sm"
+                  >
+                    {formLoading ? <Icon name="Loader2" size={16} className="animate-spin" /> : <Icon name="Check" size={16} />}
+                    {editingProduct ? "Сохранить" : "Добавить"}
+                  </button>
+                  <button
+                    onClick={() => setShowForm(false)}
+                    className="px-6 py-2.5 bg-white/5 border border-white/10 text-gray-400 hover:text-white rounded-xl font-semibold transition-all text-sm"
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Список всех товаров */}
+            {catalogLoading ? (
+              <div className="flex items-center justify-center py-16 gap-3 text-purple-300">
+                <Icon name="Loader2" size={24} className="animate-spin" />
+                <span className="font-semibold">Загружаю каталог...</span>
+              </div>
+            ) : allProducts.length === 0 ? (
+              <div className="text-center py-20">
+                <div className="text-7xl mb-4">📦</div>
+                <p className="text-gray-400 text-lg">Товаров пока нет</p>
+                <p className="text-gray-500 text-sm mt-1">Нажмите «Добавить товар» выше</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {allProducts.map(p => (
+                  <div
+                    key={p.id}
+                    className={`flex items-center gap-4 rounded-2xl p-4 border transition-all ${
+                      p.is_active
+                        ? "bg-black/40 border-white/10 hover:border-purple-500/30"
+                        : "bg-black/20 border-white/5 opacity-50"
+                    }`}
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-900/60 to-cyan-900/30 flex items-center justify-center text-2xl flex-shrink-0">
+                      {p.emoji}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-white text-sm truncate">{p.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-neon-yellow font-oswald font-bold text-sm">{p.price} {settings.currency}</span>
+                        <span className="text-gray-500 text-xs">•</span>
+                        <span className="text-gray-400 text-xs">{p.category}</span>
+                        <span className="text-gray-500 text-xs">•</span>
+                        <span className="text-gray-500 text-xs font-mono">{p.barcode}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {/* Вкл/выкл */}
+                      <button
+                        onClick={() => handleToggleActive(p)}
+                        title={p.is_active ? "Скрыть" : "Показать"}
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all ${
+                          p.is_active
+                            ? "bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30"
+                            : "bg-white/5 text-gray-600 hover:bg-white/10 hover:text-gray-400"
+                        }`}
+                      >
+                        <Icon name={p.is_active ? "Eye" : "EyeOff"} size={16} />
+                      </button>
+                      {/* Редактировать */}
+                      <button
+                        onClick={() => openEditForm(p)}
+                        className="w-9 h-9 rounded-xl bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 flex items-center justify-center transition-all"
+                      >
+                        <Icon name="Pencil" size={15} />
+                      </button>
+                      {/* Удалить */}
+                      <button
+                        onClick={() => handleDeleteProduct(p)}
+                        className="w-9 h-9 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500/20 flex items-center justify-center transition-all"
+                      >
+                        <Icon name="Trash2" size={15} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
